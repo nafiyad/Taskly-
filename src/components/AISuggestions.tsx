@@ -31,27 +31,6 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     focus: []
   });
 
-  useEffect(() => {
-    if (currentPage !== previousPageRef.current) {
-      previousPageRef.current = currentPage;
-      
-      if (currentPage === 'dashboard') {
-        loadTaskSuggestions();
-      } else if (currentPage === 'habits') {
-        loadHabitSuggestions();
-      } else if (currentPage === 'focus') {
-        loadFocusTip();
-      }
-    }
-  }, [currentPage, loadTaskSuggestions, loadHabitSuggestions, loadFocusTip]);
-  
-  // Refresh suggestions when AI mode changes
-  useEffect(() => {
-    if (currentPage === 'dashboard') {
-      loadTaskSuggestions();
-    }
-  }, [aiMode]);
-
   const loadTaskSuggestions = useCallback(async () => {
     setLoading(true);
     try {
@@ -131,6 +110,27 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (currentPage !== previousPageRef.current) {
+      previousPageRef.current = currentPage;
+      
+      if (currentPage === 'dashboard') {
+        loadTaskSuggestions();
+      } else if (currentPage === 'habits') {
+        loadHabitSuggestions();
+      } else if (currentPage === 'focus') {
+        loadFocusTip();
+      }
+    }
+  }, [currentPage, loadTaskSuggestions, loadHabitSuggestions, loadFocusTip]);
+  
+  // Refresh suggestions when AI mode changes (only for dashboard)
+  useEffect(() => {
+    if (currentPage === 'dashboard' && previousPageRef.current === 'dashboard') {
+      loadTaskSuggestions();
+    }
+  }, [aiMode, currentPage, loadTaskSuggestions]);
 
   const handleAddSuggestion = useCallback((suggestion: string) => {
     if (currentPage === 'dashboard') {

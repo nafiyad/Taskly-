@@ -20,6 +20,21 @@ export const useTimer = ({ settings, completeFocusSession }: UseTimerProps) => {
   });
   
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Preload audio for better performance
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Initialize audio on mount
+  useEffect(() => {
+    audioRef.current = new Audio('https://assets.coderrocketfuel.com/pomodoro-times-up.mp3');
+    audioRef.current.preload = 'auto';
+    
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   // Save timer state to localStorage
   useEffect(() => {
@@ -47,10 +62,10 @@ export const useTimer = ({ settings, completeFocusSession }: UseTimerProps) => {
           }
           
           // Play sound if enabled
-          if (prevState.soundOn) {
+          if (prevState.soundOn && audioRef.current) {
             try {
-              const audio = new Audio('https://assets.coderrocketfuel.com/pomodoro-times-up.mp3');
-              audio.play().catch(error => {
+              audioRef.current.currentTime = 0; // Reset audio to start
+              audioRef.current.play().catch(error => {
                 console.error("Error playing audio:", error);
               });
             } catch (error) {

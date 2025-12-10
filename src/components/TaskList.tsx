@@ -132,6 +132,21 @@ const TaskList: React.FC<TaskListProps> = memo(({ tasks, toggleTask, deleteTask,
     return Array.from(categorySet);
   }, [tasks]);
 
+  // Memoize category counts to avoid recalculation in render
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    categories.forEach(category => {
+      const count = tasks.filter(task => {
+        if (category === 'Uncategorized') {
+          return !task.notes || !task.notes.startsWith('Category:');
+        }
+        return task.notes && task.notes.startsWith(`Category: ${category}`);
+      }).length;
+      counts.set(category, count);
+    });
+    return counts;
+  }, [categories, tasks]);
+
   // Memoize filtered and sorted tasks
   const sortedTasks = useMemo(() => {
     // Filter tasks by category
@@ -196,29 +211,19 @@ const TaskList: React.FC<TaskListProps> = memo(({ tasks, toggleTask, deleteTask,
               All Tasks ({tasks.length})
             </button>
             
-            {categories.map(category => {
-              // Calculate count efficiently using the already filtered sortedTasks
-              const count = tasks.filter(task => {
-                if (category === 'Uncategorized') {
-                  return !task.notes || !task.notes.startsWith('Category:');
-                }
-                return task.notes && task.notes.startsWith(`Category: ${category}`);
-              }).length;
-              
-              return (
-                <button
-                  key={category}
-                  onClick={() => setActiveCategory(category)}
-                  className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
-                    activeCategory === category
-                      ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400'
-                      : 'text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                  }`}
-                >
-                  {category} ({count})
-                </button>
-              );
-            })}
+            {categories.map(category => (
+              <button
+                key={category}
+                onClick={() => setActiveCategory(category)}
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
+                  activeCategory === category
+                    ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400'
+                    : 'text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                {category} ({categoryCounts.get(category) || 0})
+              </button>
+            ))}
           </div>
         </div>
       )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Layout } from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import HabitTracker from './pages/HabitTracker';
@@ -169,15 +169,15 @@ function AppContent() {
     };
   }, [timerState.isActive, settings, completeFocusSession]);
 
-  // Timer control functions
-  const toggleTimer = () => {
+  // Timer control functions - use useCallback to prevent unnecessary re-renders
+  const toggleTimer = useCallback(() => {
     setTimerState(prev => ({
       ...prev,
       isActive: !prev.isActive
     }));
-  };
+  }, []);
 
-  const resetTimer = () => {
+  const resetTimer = useCallback(() => {
     setTimerState(prev => {
       let minutes;
       if (prev.timerMode === 'focus') {
@@ -195,9 +195,9 @@ function AppContent() {
         seconds: 0
       };
     });
-  };
+  }, [settings.focusTime, settings.shortBreak, settings.longBreak]);
 
-  const switchTimerMode = (mode: 'focus' | 'shortBreak' | 'longBreak') => {
+  const switchTimerMode = useCallback((mode: 'focus' | 'shortBreak' | 'longBreak') => {
     let minutes;
     if (mode === 'focus') {
       minutes = settings.focusTime;
@@ -214,14 +214,14 @@ function AppContent() {
       minutes,
       seconds: 0
     }));
-  };
+  }, [settings.focusTime, settings.shortBreak, settings.longBreak]);
 
-  const toggleSound = () => {
+  const toggleSound = useCallback(() => {
     setTimerState(prev => ({
       ...prev,
       soundOn: !prev.soundOn
     }));
-  };
+  }, []);
 
   // Feature limit checks
   const checkFeatureAccess = (feature: string, count: number = 0): boolean => {
@@ -261,18 +261,18 @@ function AppContent() {
     }
   };
 
-  // Wrapped add functions with feature checks
-  const handleAddTask = (text: string, dueDate?: string, priority?: 'low' | 'medium' | 'high', notes?: string) => {
+  // Wrapped add functions with feature checks - use useCallback
+  const handleAddTask = useCallback((text: string, dueDate?: string, priority?: 'low' | 'medium' | 'high', notes?: string) => {
     if (checkFeatureAccess('tasks', tasks.length)) {
       addTask(text, dueDate, priority, notes);
     }
-  };
+  }, [tasks.length, subscription.plan, addTask]);
 
-  const handleAddHabit = (name: string) => {
+  const handleAddHabit = useCallback((name: string) => {
     if (checkFeatureAccess('habits', habits.length)) {
       addHabit(name);
     }
-  };
+  }, [habits.length, subscription.plan, addHabit]);
 
   // If auth is loading, show loading state
   if (authLoading) {

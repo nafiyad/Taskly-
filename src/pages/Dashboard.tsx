@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import TaskForm from '../components/TaskForm';
 import TaskList from '../components/TaskList';
 import { Task, Habit, UserStats, TimerState, UserSubscription } from '../types';
@@ -38,49 +38,78 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'today' | 'overdue'>('all');
   const isPro = subscription.plan === 'pro';
   
-  const completedTasks = tasks.filter(task => task.completed).length;
-  const activeTasks = tasks.filter(task => !task.completed).length;
-  const totalTasks = tasks.length;
-  const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  // Memoize today's date to avoid recalculating on every render
+  const today = useMemo(() => new Date().toISOString().split('T')[0], []);
   
-  const today = new Date().toISOString().split('T')[0];
-  const habitsCompletedToday = habits.filter(habit => 
-    habit.completedDates.includes(today)
-  ).length;
-
-  // Calculate XP progress to next level
-  const currentLevelPoints = (userStats.level - 1) * 100;
-  const nextLevelPoints = userStats.level * 100;
-  const progress = ((userStats.points - currentLevelPoints) / (nextLevelPoints - currentLevelPoints)) * 100;
-
-  // Get earned badges
-  const earnedBadges = userStats.badges.filter(badge => badge.earned);
+  // Memoize task statistics to avoid recalculating on every render
+  const taskStats = useMemo(() => {
+    const completed = tasks.filter(task => task.completed).length;
+    const active = tasks.filter(task => !task.completed).length;
+    const total = tasks.length;
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+    
+    const todayCount = tasks.filter(task => task.dueDate === today && !task.completed).length;
+    const overdueCount = tasks.filter(task => {
+      if (!task.dueDate || task.completed) return false;
+      return new Date(task.dueDate) < new Date(today);
+    }).length;
+    
+    return {
+      completed,
+      active,
+      total,
+      completionRate,
+      todayCount,
+      overdueCount
+    };
+  }, [tasks, today]);
   
-  // Filter tasks based on selected filter
-  const todayTasks = tasks.filter(task => task.dueDate === today && !task.completed).length;
-  const overdueTasks = tasks.filter(task => {
-    if (!task.dueDate || task.completed) return false;
-    return new Date(task.dueDate) < new Date(today);
-  }).length;
-  
-  const filteredTasks = tasks.filter(task => {
-    switch (filter) {
-      case 'active':
-        return !task.completed;
-      case 'completed':
-        return task.completed;
-      case 'today':
-        return task.dueDate === today && !task.completed;
-      case 'overdue':
-        if (!task.dueDate || task.completed) return false;
-        return new Date(task.dueDate) < new Date(today);
-      default:
-        return true;
-    }
-  });
+  // Memoize habit statistics
+  const habitsCompletedToday = useMemo(() => 
+    habits.filter(habit => habit.completedDates.includes(today)).length,
+    [habits, today]
+  );
 
-  // Get task limit for free plan
-  const taskLimit = getFeatureLimit(subscription.plan, 'tasks') as number;
+  // Memoize XP progress calculation
+  const levelProgress = useMemo(() => {
+    const currentLevelPoints = (userStats.level - 1) * 100;
+    const nextLevelPoints = userStats.level * 100;
+    const progress = ((userStats.points - currentLevelPoints) / (nextLevelPoints - currentLevelPoints)) * 100;
+    
+    return {
+      currentLevelPoints,
+      nextLevelPoints,
+      progress
+    };
+  }, [userStats.level, userStats.points]);
+
+  // Memoize earned badges
+  const earnedBadges = useMemo(() => 
+    userStats.badges.filter(badge => badge.earned),
+    [userStats.badges]
+  );
+  
+  // Memoize filtered tasks based on selected filter
+  const filteredTasks = useMemo(() => {
+    return tasks.filter(task => {
+      switch (filter) {
+        case 'active':
+          return !task.completed;
+        case 'completed':
+          return task.completed;
+        case 'today':
+          return task.dueDate === today && !task.completed;
+        case 'overdue':
+          if (!task.dueDate || task.completed) return false;
+          return new Date(task.dueDate) < new Date(today);
+        default:
+          return true;
+      }
+    });
+  }, [tasks, filter, today]);
+
+  // Memoize task limit for free plan
+  const taskLimit = useMemo(() => getFeatureLimit(subscription.plan, 'tasks') as number, [subscription.plan]);
   const isAtTaskLimit = !isPro && tasks.length >= taskLimit;
 
   return (
@@ -100,10 +129,10 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">
-            {userStats.points - currentLevelPoints}/{nextLevelPoints - currentLevelPoints} to Level {userStats.level + 1}
+            {userStats.points - levelProgress.currentLevelPoints}/{levelProgress.nextLevelPoints - levelProgress.currentLevelPoints} to Level {userStats.level + 1}
           </div>
         </div>
-        <ProgressBar progress={progress} color="blue" height={4} />
+        <ProgressBar progress={levelProgress.progress} color="blue" height={4} />
       </div>
       
       {/* Stats Cards */}
@@ -115,23 +144,23 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400">Tasks Completed</p>
-              <p className="text-xl font-semibold dark:text-white">{completedTasks}/{totalTasks}</p>
+              <p className="text-xl font-semibold dark:text-white">{taskStats.completed}/{taskStats.total}</p>
             </div>
           </div>
-          {totalTasks > 0 && (
+          {taskStats.total > 0 && (
             <div className="mt-3">
               <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
                 <div 
                   className="bg-blue-600 h-2.5 rounded-full dark:bg-blue-500" 
-                  style={{ width: `${completionRate}%` }}
+                  style={{ width: `${taskStats.completionRate}%` }}
                 ></div>
               </div>
-              <p className="text-xs text-gray-500 mt-1 dark:text-gray-400">{completionRate}% completed</p>
+              <p className="text-xs text-gray-500 mt-1 dark:text-gray-400">{taskStats.completionRate}% completed</p>
             </div>
           )}
           {!isPro && (
             <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
-              <span>Limit: {totalTasks}/{taskLimit} tasks</span>
+              <span>Limit: {taskStats.total}/{taskLimit} tasks</span>
               {isAtTaskLimit && (
                 <button 
                   onClick={() => setCurrentPage('subscription')}
@@ -260,10 +289,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                 className="text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               >
                 <option value="all">All Tasks ({tasks.length})</option>
-                <option value="active">Active ({activeTasks})</option>
-                <option value="completed">Completed ({completedTasks})</option>
-                <option value="today">Due Today ({todayTasks})</option>
-                <option value="overdue">Overdue ({overdueTasks})</option>
+                <option value="active">Active ({taskStats.active})</option>
+                <option value="completed">Completed ({taskStats.completed})</option>
+                <option value="today">Due Today ({taskStats.todayCount})</option>
+                <option value="overdue">Overdue ({taskStats.overdueCount})</option>
               </select>
             </div>
           </div>

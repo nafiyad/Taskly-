@@ -20,6 +20,7 @@ import AISuggestions from './components/AISuggestions';
 import LevelUpModal from './components/LevelUpModal';
 import UpgradePrompt from './components/UpgradePrompt';
 import { hasReachedLimit, isFeatureAvailable } from './lib/featureLimits';
+import { useTimer } from './hooks/useTimer';
 
 function AppContent() {
   const { user, loading: authLoading, subscription } = useAuth();
@@ -46,36 +47,11 @@ function AppContent() {
   const [upgradeFeature, setUpgradeFeature] = useState('');
   const prevLevelRef = useRef<number | null>(null);
 
-  // Timer state
-  const [timerState, setTimerState] = useState<TimerState>(() => {
-    const savedTimerState = localStorage.getItem('timerState');
-    return savedTimerState ? JSON.parse(savedTimerState) : {
-      minutes: settings?.focusTime || 25,
-      seconds: 0,
-      isActive: false,
-      timerMode: 'focus',
-      sessionCount: 0,
-      soundOn: settings?.notifications || true
-    };
+  // Use custom timer hook
+  const { timerState, toggleTimer, resetTimer, switchTimerMode, toggleSound } = useTimer({
+    settings,
+    completeFocusSession
   });
-  
-  // Timer interval reference
-  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Save timer state to localStorage
-  useEffect(() => {
-    localStorage.setItem('timerState', JSON.stringify(timerState));
-  }, [timerState]);
-
-  // Update timer settings when app settings change
-  useEffect(() => {
-    if (settings && !timerState.isActive) {
-      setTimerState(prev => ({
-        ...prev,
-        soundOn: settings.notifications
-      }));
-    }
-  }, [settings]);
 
   // Check for level up
   useEffect(() => {
@@ -87,141 +63,6 @@ function AppContent() {
       prevLevelRef.current = userStats.level;
     }
   }, [userStats.level]);
-
-  // Timer logic
-  useEffect(() => {
-    if (timerState.isActive) {
-      timerIntervalRef.current = setInterval(() => {
-        setTimerState(prevState => {
-          if (prevState.seconds === 0) {
-            if (prevState.minutes === 0) {
-              // Timer completed
-              clearInterval(timerIntervalRef.current as NodeJS.Timeout);
-              
-              // Play sound if enabled
-              if (prevState.soundOn) {
-                try {
-                  // Use a more reliable audio source
-                  const audio = new Audio('https://assets.coderrocketfuel.com/pomodoro-times-up.mp3');
-                  audio.play().catch(error => {
-                    console.error("Error playing audio:", error);
-                  });
-                } catch (error) {
-                  console.error("Error playing audio:", error);
-                }
-              }
-              
-              // Increment session count if focus mode completed
-              if (prevState.timerMode === 'focus') { completeFocusSession();
-                
-                // After 4 focus sessions, take a long break
-                if ((prevState.sessionCount + 1) % 4 === 0) {
-                  return {
-                    ...prevState,
-                    isActive: false,
-                    minutes: settings.longBreak,
-                    seconds: 0,
-                    timerMode: 'longBreak',
-                    sessionCount: prevState.sessionCount + 1
-                  };
-                } else {
-                  return {
-                    ...prevState,
-                    isActive: false,
-                    minutes: settings.shortBreak,
-                    seconds: 0,
-                    timerMode: 'shortBreak',
-                    sessionCount: prevState.sessionCount + 1
-                  };
-                }
-              } else {
-                return {
-                  ...prevState,
-                  isActive: false,
-                  minutes: settings.focusTime,
-                  seconds: 0,
-                  timerMode: 'focus'
-                };
-              }
-            } else {
-              return {
-                ...prevState,
-                minutes: prevState.minutes - 1,
-                seconds: 59
-              };
-            }
-          } else {
-            return {
-              ...prevState,
-              seconds: prevState.seconds - 1
-            };
-          }
-        });
-      }, 1000);
-    } else if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-    }
-
-    return () => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
-    };
-  }, [timerState.isActive, settings, completeFocusSession]);
-
-  // Timer control functions - use useCallback to prevent unnecessary re-renders
-  const toggleTimer = useCallback(() => {
-    setTimerState(prev => ({
-      ...prev,
-      isActive: !prev.isActive
-    }));
-  }, []);
-
-  const resetTimer = useCallback(() => {
-    setTimerState(prev => {
-      let minutes;
-      if (prev.timerMode === 'focus') {
-        minutes = settings.focusTime;
-      } else if (prev.timerMode === 'shortBreak') {
-        minutes = settings.shortBreak;
-      } else {
-        minutes = settings.longBreak;
-      }
-      
-      return {
-        ...prev,
-        isActive: false,
-        minutes,
-        seconds: 0
-      };
-    });
-  }, [settings.focusTime, settings.shortBreak, settings.longBreak]);
-
-  const switchTimerMode = useCallback((mode: 'focus' | 'shortBreak' | 'longBreak') => {
-    let minutes;
-    if (mode === 'focus') {
-      minutes = settings.focusTime;
-    } else if (mode === 'shortBreak') {
-      minutes = settings.shortBreak;
-    } else {
-      minutes = settings.longBreak;
-    }
-    
-    setTimerState(prev => ({
-      ...prev,
-      isActive: false,
-      timerMode: mode,
-      minutes,
-      seconds: 0
-    }));
-  }, [settings.focusTime, settings.shortBreak, settings.longBreak]);
-
-  const toggleSound = useCallback(() => {
-    setTimerState(prev => ({
-      ...prev,
-      soundOn: !prev.soundOn
-    }));
-  }, []);
 
   // Feature limit checks
   const checkFeatureAccess = (feature: string, count: number = 0): boolean => {

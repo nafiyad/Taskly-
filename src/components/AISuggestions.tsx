@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Lightbulb, RefreshCw, Plus, X, Sparkles, Brain } from 'lucide-react';
 import { generateTaskSuggestions, suggestHabitImprovements, generateFocusTip } from '../lib/deepseek';
 import { Task, Habit } from '../types';
@@ -31,21 +31,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     focus: []
   });
 
-  useEffect(() => {
-    if (currentPage !== previousPageRef.current) {
-      previousPageRef.current = currentPage;
-      
-      if (currentPage === 'dashboard') {
-        loadTaskSuggestions();
-      } else if (currentPage === 'habits') {
-        loadHabitSuggestions();
-      } else if (currentPage === 'focus') {
-        loadFocusTip();
-      }
-    }
-  }, [currentPage]);
-
-  const loadTaskSuggestions = async () => {
+  const loadTaskSuggestions = useCallback(async () => {
     setLoading(true);
     try {
       // Create a context string from current tasks and habits
@@ -84,9 +70,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [tasks, habits, aiMode]);
 
-  const loadHabitSuggestions = async () => {
+  const loadHabitSuggestions = useCallback(async () => {
     setLoading(true);
     try {
       // Enhance habit context with streak information
@@ -108,9 +94,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [habits]);
 
-  const loadFocusTip = async () => {
+  const loadFocusTip = useCallback(async () => {
     setLoading(true);
     try {
       const tip = await generateFocusTip();
@@ -123,25 +109,46 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleAddSuggestion = (suggestion: string) => {
+  useEffect(() => {
+    if (currentPage !== previousPageRef.current) {
+      previousPageRef.current = currentPage;
+      
+      if (currentPage === 'dashboard') {
+        loadTaskSuggestions();
+      } else if (currentPage === 'habits') {
+        loadHabitSuggestions();
+      } else if (currentPage === 'focus') {
+        loadFocusTip();
+      }
+    }
+  }, [currentPage, loadTaskSuggestions, loadHabitSuggestions, loadFocusTip]);
+  
+  // Refresh suggestions when AI mode changes (only for dashboard)
+  useEffect(() => {
+    if (currentPage === 'dashboard' && previousPageRef.current === 'dashboard') {
+      loadTaskSuggestions();
+    }
+  }, [aiMode, currentPage, loadTaskSuggestions]);
+
+  const handleAddSuggestion = useCallback((suggestion: string) => {
     if (currentPage === 'dashboard') {
       addTask(suggestion);
       toast.success('Task added from AI suggestion');
       
       // Remove the suggestion from the list
-      setSuggestions(suggestions.filter(s => s !== suggestion));
+      setSuggestions(prev => prev.filter(s => s !== suggestion));
     } else if (currentPage === 'habits') {
       addHabit(suggestion);
       toast.success('Habit added from AI suggestion');
       
       // Remove the suggestion from the list
-      setSuggestions(suggestions.filter(s => s !== suggestion));
+      setSuggestions(prev => prev.filter(s => s !== suggestion));
     }
-  };
+  }, [currentPage, addTask, addHabit]);
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     if (currentPage === 'dashboard') {
       loadTaskSuggestions();
     } else if (currentPage === 'habits') {
@@ -149,13 +156,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     } else if (currentPage === 'focus') {
       loadFocusTip();
     }
-  };
+  }, [currentPage, loadTaskSuggestions, loadHabitSuggestions, loadFocusTip]);
 
-  const changeAiMode = (mode: 'standard' | 'creative' | 'analytical') => {
+  const changeAiMode = useCallback((mode: 'standard' | 'creative' | 'analytical') => {
     setAiMode(mode);
     toast.success(`AI mode changed to ${mode}`);
-    handleRefresh();
-  };
+    // Refresh will be called when aiMode changes
+  }, []);
 
   if (!showSuggestions) {
     return (

@@ -907,74 +907,72 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Check for badge achievements
+  // Check for badge achievements - debounced to reduce unnecessary checks
   useEffect(() => {
     if (!user || badges.length === 0) return;
 
-    const checkBadges = async () => {
-      const updatedBadges = [...badges];
-      let badgesUpdated = false;
-      
-      // Check each badge
-      for (const badge of updatedBadges) {
-        if (!badge.earned && badge.requirement) {
-          let earned = false;
-          
-          switch (badge.requirement.type) {
-            case 'tasks':
-              if (userStats.tasksCompleted >= badge.requirement.count) {
-                earned = true;
-              }
-              break;
-            case 'habits':
-              if (userStats.longestStreak >= badge.requirement.count) {
-                earned = true;
-              }
-              break;
-            case 'focus':
-              if (userStats.focusSessionsCompleted >= badge.requirement.count) {
-                earned = true;
-              }
-              break;
-            case 'level':
-              if (userStats.level >= badge.requirement.count) {
-                earned = true;
-              }
-              break;
-          }
-          
-          if (earned) {
-            badge.earned = true;
-            const earnedAt = new Date().toISOString();
-            badge.earnedAt = earnedAt;
-            badgesUpdated = true;
-            
-            // Save to database if not using mock client
-            if (!isMockClient()) {
-              await supabase
-                .from('user_badges')
-                .insert({
-                  user_id: user.id,
-                  badge_id: badge.id,
-                  earned_at: earnedAt
-                });
-            }
-              
-            toast.success(`🏆 Badge earned: ${badge.name}!`);
-          }
-        }
-      }
-      
-      if (badgesUpdated) {
-        setUserStats(prev => ({
-          ...prev,
-          badges: updatedBadges
-        }));
-      }
-    };
+    // Debounce badge checking to avoid excessive checks
+    const timeoutId = setTimeout(() => {
+      checkBadges();
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [userStats.tasksCompleted, userStats.habitsCompleted, userStats.focusSessionsCompleted, userStats.level, userStats.longestStreak]);
+
+  const checkBadges = async () => {
+    const updatedBadges = [...badges];
+    let badgesUpdated = false;
     
-    checkBadges();
-  }, [userStats.tasksCompleted, userStats.habitsCompleted, userStats.focusSessionsCompleted, userStats.level, userStats.longestStreak, user, badges]);
+    // Check each badge
+    for (const badge of updatedBadges) {
+      // Skip already earned badges
+      if (badge.earned || !badge.requirement) continue;
+      
+      let earned = false;
+      
+      switch (badge.requirement.type) {
+        case 'tasks':
+          earned = userStats.tasksCompleted >= badge.requirement.count;
+          break;
+        case 'habits':
+          earned = userStats.longestStreak >= badge.requirement.count;
+          break;
+        case 'focus':
+          earned = userStats.focusSessionsCompleted >= badge.requirement.count;
+          break;
+        case 'level':
+          earned = userStats.level >= badge.requirement.count;
+          break;
+      }
+      
+      if (earned) {
+        badge.earned = true;
+        const earnedAt = new Date().toISOString();
+        badge.earnedAt = earnedAt;
+        badgesUpdated = true;
+        
+        // Save to database if not using mock client
+        if (!isMockClient()) {
+          await supabase
+            .from('user_badges')
+            .insert({
+              user_id: user.id,
+              badge_id: badge.id,
+              earned_at: earnedAt
+            });
+        }
+          
+        toast.success(`🏆 Badge earned: ${badge.name}!`);
+      }
+    }
+    
+    if (badgesUpdated) {
+      setUserStats(prev => ({
+        ...prev,
+        badges: updatedBadges
+      }));
+    }
+  };
 
   // Add points and update level
   const addPoints = async (points: number) => {
@@ -1076,23 +1074,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const toggleTask = async (id: number) => {
     if (!user) return;
     
+    // Find the task
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    
+    const newCompleted = !task.completed;
+    
+    // Update local state first for immediate UI feedback
+    setTasks(prevTasks =>
+      prevTasks.map(t => t.id === id ? { ...t, completed: newCompleted } : t)
+    );
+    
     try {
-      // Find the task
-      const task = tasks.find(t => t.id === id);
-      if (!task) return;
-      
-      const newCompleted = !task.completed;
-      
-      // Update local state
-      setTasks(
-        tasks.map(task => {
-          if (task.id === id) {
-            return { ...task, completed: newCompleted };
-          }
-          return task;
-        })
-      );
-      
       // Update database if not using mock client
       if (!isMockClient()) {
         await supabase
@@ -1343,17 +1336,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const toggleHabit = async (id: number) => {
     if (!user) return;
     
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Find the habit
+    const habit = habits.find(h => h.id === id);
+    if (!habit) return;
+    
+    const alreadyCompleted = habit.completedDates.includes(today);
+    let newCompletedDates: string[];
+    let newStreak: number;
+    
     try {
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Find the habit
-      const habit = habits.find(h => h.id === id);
-      if (!habit) return;
-      
-      const alreadyCompleted = habit.completedDates.includes(today);
-      let newCompletedDates: string[];
-      let newStreak: number;
-      
       if (alreadyCompleted) {
         // Remove today's completion
         newCompletedDates = habit.completedDates.filter(date => date !== today);
@@ -1479,21 +1472,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
       }
         
       // Update local state
-      setHabits(
-        habits.map(habit => {
-          if (habit.id === id) {
-            return {
-              ...habit,
-              completedDates: newCompletedDates,
-              streak: newStreak,
-            };
-          }
-          return habit;
-        })
+      setHabits(prevHabits =>
+        prevHabits.map(h => h.id === id ? {
+          ...h,
+          completedDates: newCompletedDates,
+          streak: newStreak,
+        } : h)
       );
     } catch (error) {
       console.error('Error toggling habit:', error);
       toast.error('Failed to update habit. Please try again.');
+      
+      // Revert optimistic update on error
+      setHabits(prevHabits =>
+        prevHabits.map(h => h.id === id ? habit : h)
+      );
     }
   };
 

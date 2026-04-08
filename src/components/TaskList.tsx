@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback, memo } from 'react';
 import { Check, Trash, Edit, X, Save, Award, Calendar, Flag, AlignLeft, ChevronDown, ChevronUp, Filter } from 'lucide-react';
 import { Task } from '../types';
 
@@ -9,7 +9,7 @@ interface TaskListProps {
   editTask: (id: number, newText: string, dueDate?: string, priority?: 'low' | 'medium' | 'high', notes?: string) => void;
 }
 
-const TaskList: React.FC<TaskListProps> = ({ tasks, toggleTask, deleteTask, editTask }) => {
+const TaskList: React.FC<TaskListProps> = memo(({ tasks, toggleTask, deleteTask, editTask }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
   const [editDueDate, setEditDueDate] = useState('');
@@ -18,23 +18,23 @@ const TaskList: React.FC<TaskListProps> = ({ tasks, toggleTask, deleteTask, edit
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
-  const startEditing = (task: Task) => {
+  const startEditing = useCallback((task: Task) => {
     setEditingId(task.id);
     setEditText(task.text);
     setEditDueDate(task.dueDate || '');
     setEditPriority(task.priority || '');
     setEditNotes(task.notes || '');
-  };
+  }, []);
 
-  const cancelEditing = () => {
+  const cancelEditing = useCallback(() => {
     setEditingId(null);
     setEditText('');
     setEditDueDate('');
     setEditPriority('');
     setEditNotes('');
-  };
+  }, []);
 
-  const saveEdit = (id: number) => {
+  const saveEdit = useCallback((id: number) => {
     if (editText.trim()) {
       editTask(
         id, 
@@ -49,15 +49,11 @@ const TaskList: React.FC<TaskListProps> = ({ tasks, toggleTask, deleteTask, edit
       setEditPriority('');
       setEditNotes('');
     }
-  };
+  }, [editText, editDueDate, editPriority, editNotes, editTask]);
 
-  const toggleExpand = (id: number) => {
-    if (expandedTaskId === id) {
-      setExpandedTaskId(null);
-    } else {
-      setExpandedTaskId(id);
-    }
-  };
+  const toggleExpand = useCallback((id: number) => {
+    setExpandedTaskId(prev => prev === id ? null : id);
+  }, []);
 
   const getPriorityColor = (priority?: 'low' | 'medium' | 'high') => {
     switch (priority) {
@@ -120,64 +116,75 @@ const TaskList: React.FC<TaskListProps> = ({ tasks, toggleTask, deleteTask, edit
     return taskDate < today;
   };
 
-  // Extract categories from tasks
-  const extractCategories = () => {
-    const categories = new Set<string>();
+  // Memoize categories extraction to avoid recalculation on every render
+  const categories = useMemo(() => {
+    const categorySet = new Set<string>();
     
     tasks.forEach(task => {
       if (task.notes && task.notes.startsWith('Category:')) {
         const category = task.notes.replace('Category:', '').trim();
-        categories.add(category);
+        categorySet.add(category);
       } else {
-        categories.add('Uncategorized');
+        categorySet.add('Uncategorized');
       }
     });
     
-    return Array.from(categories);
-  };
+    return Array.from(categorySet);
+  }, [tasks]);
 
-  const categories = extractCategories();
+  // Memoize category counts to avoid recalculation in render
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    categories.forEach(category => {
+      const count = tasks.filter(task => {
+        if (category === 'Uncategorized') {
+          return !task.notes || !task.notes.startsWith('Category:');
+        }
+        return task.notes && task.notes.startsWith(`Category: ${category}`);
+      }).length;
+      counts.set(category, count);
+    });
+    return counts;
+  }, [categories, tasks]);
 
-  // Filter tasks by category
-  const getTasksByCategory = (category: string | null) => {
-    if (!category) {
-      return tasks;
-    }
-    
-    return tasks.filter(task => {
-      if (category === 'Uncategorized') {
-        return !task.notes || !task.notes.startsWith('Category:');
+  // Memoize filtered and sorted tasks
+  const sortedTasks = useMemo(() => {
+    // Filter tasks by category
+    const filteredByCategory = !activeCategory
+      ? tasks
+      : tasks.filter(task => {
+          if (activeCategory === 'Uncategorized') {
+            return !task.notes || !task.notes.startsWith('Category:');
+          }
+          return task.notes && task.notes.startsWith(`Category: ${activeCategory}`);
+        });
+
+    // Sort tasks: first by completion status, then by due date, then by priority
+    return [...filteredByCategory].sort((a, b) => {
+      // Completed tasks go to the bottom
+      if (a.completed !== b.completed) {
+        return a.completed ? 1 : -1;
       }
       
-      return task.notes && task.notes.startsWith(`Category: ${category}`);
+      // Sort by due date (tasks with due dates come first)
+      if (!!a.dueDate !== !!b.dueDate) {
+        return a.dueDate ? -1 : 1;
+      }
+      
+      // Sort by due date (earlier dates first)
+      if (a.dueDate && b.dueDate) {
+        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      }
+      
+      // Sort by priority
+      const priorityOrder = { high: 0, medium: 1, low: 2, undefined: 3 };
+      const aPriority = a.priority || 'undefined';
+      const bPriority = b.priority || 'undefined';
+      
+      return priorityOrder[aPriority as keyof typeof priorityOrder] - 
+             priorityOrder[bPriority as keyof typeof priorityOrder];
     });
-  };
-
-  // Sort tasks: first by completion status, then by due date, then by priority
-  const sortedTasks = [...getTasksByCategory(activeCategory)].sort((a, b) => {
-    // Completed tasks go to the bottom
-    if (a.completed !== b.completed) {
-      return a.completed ? 1 : -1;
-    }
-    
-    // Sort by due date (tasks with due dates come first)
-    if (!!a.dueDate !== !!b.dueDate) {
-      return a.dueDate ? -1 : 1;
-    }
-    
-    // Sort by due date (earlier dates first)
-    if (a.dueDate && b.dueDate) {
-      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-    }
-    
-    // Sort by priority
-    const priorityOrder = { high: 0, medium: 1, low: 2, undefined: 3 };
-    const aPriority = a.priority || 'undefined';
-    const bPriority = b.priority || 'undefined';
-    
-    return priorityOrder[aPriority as keyof typeof priorityOrder] - 
-           priorityOrder[bPriority as keyof typeof priorityOrder];
-  });
+  }, [tasks, activeCategory]);
 
   if (tasks.length === 0) {
     return (
@@ -214,7 +221,7 @@ const TaskList: React.FC<TaskListProps> = ({ tasks, toggleTask, deleteTask, edit
                     : 'text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
                 }`}
               >
-                {category} ({getTasksByCategory(category).length})
+                {category} ({categoryCounts.get(category) || 0})
               </button>
             ))}
           </div>
@@ -424,6 +431,9 @@ const TaskList: React.FC<TaskListProps> = ({ tasks, toggleTask, deleteTask, edit
       </ul>
     </div>
   );
-};
+});
+
+// Add display name for debugging
+TaskList.displayName = 'TaskList';
 
 export default TaskList;
